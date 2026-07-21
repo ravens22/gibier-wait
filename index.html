@@ -1,0 +1,694 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ジビエ屋台 番号待ち管理</title>
+<style>
+  :root{
+    color-scheme: light dark;
+    --bg:#F6F3EF; --surface:#FFFFFF; --surface-2:#FBF8F4;
+    --text:#221D1A; --muted:#6B615B; --border:#E7DFD7;
+    --accent:#D2502A; --accent-ink:#FFFFFF;
+    --cooking:#D98A16; --cooking-bg:#FBEFD6;
+    --ready:#1F9D5B; --ready-bg:#DEF3E6;
+    --danger:#C7402F; --danger-bg:#F8E2DE;
+    --shadow:0 1px 2px rgba(40,24,14,.05),0 6px 18px rgba(40,24,14,.06);
+    --radius:16px;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#16120E; --surface:#211B16; --surface-2:#1B1611;
+      --text:#F3ECE4; --muted:#A99C90; --border:#352C24;
+      --accent:#F0703C; --accent-ink:#1B1105;
+      --cooking:#F3A73B; --cooking-bg:#39290F;
+      --ready:#35C07B; --ready-bg:#12311F;
+      --danger:#F0654B; --danger-bg:#3A1712;
+      --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 22px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="light"]{
+    color-scheme: light;
+    --bg:#F6F3EF; --surface:#FFFFFF; --surface-2:#FBF8F4;
+    --text:#221D1A; --muted:#6B615B; --border:#E7DFD7;
+    --accent:#D2502A; --accent-ink:#FFFFFF;
+    --cooking:#D98A16; --cooking-bg:#FBEFD6;
+    --ready:#1F9D5B; --ready-bg:#DEF3E6;
+    --danger:#C7402F; --danger-bg:#F8E2DE;
+    --shadow:0 1px 2px rgba(40,24,14,.05),0 6px 18px rgba(40,24,14,.06);
+  }
+  :root[data-theme="dark"]{
+    color-scheme: dark;
+    --bg:#16120E; --surface:#211B16; --surface-2:#1B1611;
+    --text:#F3ECE4; --muted:#A99C90; --border:#352C24;
+    --accent:#F0703C; --accent-ink:#1B1105;
+    --cooking:#F3A73B; --cooking-bg:#39290F;
+    --ready:#35C07B; --ready-bg:#12311F;
+    --danger:#F0654B; --danger-bg:#3A1712;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 22px rgba(0,0,0,.35);
+  }
+
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    background:var(--bg); color:var(--text);
+    font-family:"Hiragino Kaku Gothic ProN","Hiragino Sans","Yu Gothic UI","Yu Gothic",Meiryo,system-ui,-apple-system,"Segoe UI",sans-serif;
+    -webkit-font-smoothing:antialiased; line-height:1.5;
+    padding-bottom:env(safe-area-inset-bottom);
+  }
+  .num{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
+  button{font-family:inherit}
+  button:focus-visible, .seg-btn:focus-visible, input:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+
+  /* ---------- Top bar ---------- */
+  header{
+    position:sticky; top:0; z-index:20;
+    display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+    padding:8px 14px;
+    padding-top:max(8px,env(safe-area-inset-top));
+    background:color-mix(in srgb,var(--surface) 88%, transparent);
+    backdrop-filter:saturate(1.2) blur(8px);
+    border-bottom:1px solid var(--border);
+  }
+  .brand{display:flex;align-items:center;gap:10px;margin-right:auto}
+  .brand .mark{
+    width:34px;height:34px;border-radius:9px;flex:none;
+    background:radial-gradient(circle at 50% 120%,var(--cooking),var(--accent) 60%);
+    display:grid;place-items:center;font-size:19px;
+  }
+  .brand h1{font-size:16px;margin:0;font-weight:700;letter-spacing:.01em}
+  .brand small{display:block;color:var(--muted);font-size:11px;font-weight:600;letter-spacing:.06em}
+
+  .seg{display:inline-flex;background:var(--surface-2);border:1px solid var(--border);border-radius:11px;padding:3px}
+  .seg-btn{
+    border:0;background:transparent;color:var(--muted);
+    padding:8px 14px;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;
+  }
+  .seg-btn[aria-pressed="true"]{background:var(--surface);color:var(--text);box-shadow:var(--shadow)}
+  .icon-btn{
+    width:40px;height:40px;border-radius:11px;border:1px solid var(--border);
+    background:var(--surface-2);color:var(--text);cursor:pointer;font-size:17px;display:grid;place-items:center;
+  }
+  .icon-btn:hover{border-color:var(--accent)}
+
+  main{max-width:1160px;margin:0 auto;padding:12px 14px}
+
+  /* ---------- Issue panel ---------- */
+  .issue-panel{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);padding:12px;margin-bottom:12px}
+  .issue-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:9px}
+  .issue-head .t{font-weight:800;font-size:14px}
+  .issue-head .unit{font-weight:700;color:var(--muted);font-size:12px;margin-left:4px}
+  .issue-head .next{font-weight:800;color:var(--accent);font-size:13px;background:color-mix(in srgb,var(--accent) 12%,var(--surface));border:1px solid color-mix(in srgb,var(--accent) 30%,var(--border));padding:4px 10px;border-radius:999px}
+  .menu-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+  @media (max-width:620px){.menu-grid{grid-template-columns:1fr 1fr}}
+  .menu-item{border:1.5px solid var(--border);border-radius:12px;padding:9px 10px;background:var(--surface-2);text-align:left;transition:border-color .12s,background .12s}
+  .menu-item.on{border-color:var(--c);background:color-mix(in srgb,var(--c) 12%,var(--surface))}
+  .mi-head{display:flex;align-items:center;justify-content:center;gap:6px;margin-bottom:4px}
+  .mi-head .emoji{font-size:18px;line-height:1}
+  .mi-head .name{font-weight:800;font-size:13px}
+  .ssrow{display:flex;align-items:center;gap:6px;margin-top:5px}
+  .ssrow .sslabel{font-size:12px;font-weight:800;color:var(--muted);min-width:26px;flex:none}
+  .menu-item.on .ssrow .sslabel{color:var(--c)}
+  .ssrow .ctr{display:flex;align-items:center;gap:5px;margin-left:auto}
+  .ssrow .ctr button{width:30px;height:30px;border-radius:8px;border:1px solid var(--border);background:var(--surface);font-size:17px;font-weight:700;cursor:pointer;color:var(--text);line-height:1}
+  .ssrow .ctr button:hover{border-color:var(--c);color:var(--c)}
+  .ssrow .ctr .n{min-width:18px;font-size:18px;font-weight:800;text-align:center;font-variant-numeric:tabular-nums}
+  .ssrow .ctr .n.hot{color:var(--c)}
+
+  .note-wrap{margin-top:9px;position:relative}
+  .note-input{width:100%;border:1px solid var(--border);border-radius:11px;background:var(--surface-2);color:var(--text);padding:10px 12px;font-size:14px;font-family:inherit}
+  .note-input::placeholder{color:var(--muted)}
+  .note-input:focus{outline:2px solid var(--accent);outline-offset:0;border-color:var(--accent)}
+
+  .issue-submit{width:100%;margin-top:9px;min-height:50px;border:0;border-radius:12px;color:var(--accent-ink);cursor:pointer;
+    background:linear-gradient(135deg,var(--accent),color-mix(in srgb,var(--accent) 70%,#000 12%));
+    font-size:16px;font-weight:800;letter-spacing:.02em;display:flex;align-items:center;justify-content:center;gap:10px;box-shadow:var(--shadow);transition:transform .06s,filter .15s}
+  .issue-submit:hover{filter:brightness(1.05)}
+  .issue-submit:active{transform:translateY(1px)}
+  .issue-submit:disabled{opacity:.45;cursor:not-allowed;filter:grayscale(.35);box-shadow:none}
+  .issue-submit .cnt{font-size:13px;font-weight:700;background:rgba(255,255,255,.22);padding:3px 9px;border-radius:999px}
+
+  .tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:6px}
+  .tile{background:var(--surface);border:1px solid var(--border);border-radius:13px;padding:9px 13px;box-shadow:var(--shadow);display:flex;align-items:baseline;gap:8px}
+  .tile .lbl{font-size:12px;color:var(--muted);font-weight:700;letter-spacing:.03em}
+  .tile .v{font-size:24px;font-weight:800;line-height:1.1;margin-left:auto}
+  .tile .v span{font-size:12px;color:var(--muted);font-weight:700;margin-left:3px}
+  .tile.cook .v{color:var(--cooking)} .tile.ready .v{color:var(--ready)}
+
+  .salesbar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:10px 0 0;padding:9px 14px;background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow)}
+  .salesbar .lbl{font-size:12.5px;color:var(--muted);font-weight:700;letter-spacing:.03em}
+  .salesbar .amt{font-size:19px;font-weight:800;color:var(--accent);font-variant-numeric:tabular-nums}
+  .salesbar .amt small{font-size:11px;color:var(--muted);font-weight:700;margin-left:6px}
+
+  .section-h{display:flex;align-items:center;gap:10px;margin:14px 2px 8px}
+  .section-h h2{font-size:13px;margin:0;letter-spacing:.06em;color:var(--muted);text-transform:uppercase}
+  .section-h .rule{flex:1;height:1px;background:var(--border)}
+
+  /* ---------- Menu chips ---------- */
+  .mchip{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:999px;font-size:12px;font-weight:700;
+    background:color-mix(in srgb,var(--c) 14%,var(--surface));border:1px solid color-mix(in srgb,var(--c) 32%,var(--border));color:var(--text)}
+  .mchip .q{color:var(--c);font-weight:800;font-variant-numeric:tabular-nums}
+  .mchip .ss{display:inline-flex;align-items:center;gap:1px;margin-left:3px}
+  .mchip .ss b{color:var(--c);font-weight:800;font-variant-numeric:tabular-nums}
+
+  /* ---------- Cards ---------- */
+  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(215px,1fr));gap:10px}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:13px;padding:11px 12px;box-shadow:var(--shadow);position:relative;overflow:hidden;border-left:5px solid var(--cooking)}
+  .card.ready{border-left-color:var(--ready);background:linear-gradient(0deg,color-mix(in srgb,var(--ready-bg) 55%,transparent),transparent 60%),var(--surface)}
+  .card.late{border-left-color:var(--danger)}
+  .card-top{display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .ticket{font-size:32px;font-weight:800;line-height:1}
+  .ticket .hash{font-size:17px;color:var(--muted);font-weight:700;margin-right:1px}
+  .pill{font-size:11px;font-weight:800;padding:4px 9px;border-radius:999px;white-space:nowrap}
+  .pill.cook{background:var(--cooking-bg);color:var(--cooking)}
+  .pill.ready{background:var(--ready-bg);color:var(--ready)}
+  .card-items{display:flex;flex-wrap:wrap;gap:5px;margin:7px 0 6px}
+  .card-note{font-size:12.5px;line-height:1.4;background:color-mix(in srgb,var(--accent) 7%,var(--surface-2));border:1px dashed color-mix(in srgb,var(--accent) 34%,var(--border));border-radius:9px;padding:6px 9px;margin-bottom:7px;word-break:break-word}
+  .card-note b{color:var(--accent);font-weight:800;margin-right:5px;font-size:10px;letter-spacing:.04em}
+  .meta{display:flex;flex-wrap:wrap;gap:3px 12px;margin:0 0 7px;color:var(--muted);font-size:12px;font-weight:600}
+  .meta b{color:var(--text)}
+  .meta .price{color:var(--accent);font-weight:800}
+  .count{font-size:21px;font-weight:800;letter-spacing:.01em}
+  .count.cook{color:var(--cooking)} .count.ready{color:var(--ready)} .count.late{color:var(--danger)}
+  .count .u{font-size:13px;color:var(--muted);font-weight:700;margin-left:2px}
+  .bar{height:7px;border-radius:999px;background:var(--surface-2);overflow:hidden;margin:8px 0 9px;border:1px solid var(--border)}
+  .bar > i{display:block;height:100%;background:linear-gradient(90deg,var(--cooking),var(--accent));transition:width .5s linear}
+  .card.ready .bar > i{background:var(--ready)}
+  .card.late .bar > i{background:var(--danger)}
+  .actions{display:flex;gap:7px;flex-wrap:wrap}
+  .btn{border:1px solid var(--border);background:var(--surface-2);color:var(--text);border-radius:10px;padding:9px 10px;font-weight:700;font-size:12.5px;cursor:pointer;flex:1 1 auto}
+  .btn:hover{border-color:var(--accent)}
+  .btn.primary{background:var(--ready);border-color:var(--ready);color:#fff;flex:2 1 130px}
+  .btn.primary:hover{filter:brightness(1.05)}
+  .btn.ghost{flex:0 0 auto;color:var(--muted)}
+  .btn.ghost:hover{color:var(--danger);border-color:var(--danger)}
+  .ready-pulse{animation:pulse 1.4s ease-in-out infinite}
+  @keyframes pulse{0%,100%{box-shadow:var(--shadow)}50%{box-shadow:0 0 0 3px color-mix(in srgb,var(--ready) 45%,transparent),var(--shadow)}}
+  @media (prefers-reduced-motion:reduce){.ready-pulse{animation:none}.blink{animation:none!important}}
+
+  .empty{color:var(--muted);text-align:center;padding:34px 16px;border:1.5px dashed var(--border);border-radius:var(--radius);font-weight:600}
+
+  details.history{margin-top:22px}
+  details.history summary{cursor:pointer;color:var(--muted);font-weight:700;font-size:13px;padding:6px 2px;list-style:none}
+  details.history summary::-webkit-details-marker{display:none}
+  .hist-list{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+  .chip{background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:5px 9px;font-size:12px;color:var(--muted);font-weight:700}
+
+  /* ---------- Customer display ---------- */
+  .display{display:none}
+  body.mode-display .staff{display:none}
+  body.mode-display .display{display:block}
+  .disp-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:4px}
+  @media (max-width:720px){.disp-grid{grid-template-columns:1fr}.tiles{grid-template-columns:1fr 1fr}}
+  .panel{background:var(--surface);border:1px solid var(--border);border-radius:18px;box-shadow:var(--shadow);padding:14px;min-height:54vh}
+  .panel .head{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+  .panel .head .dot{width:14px;height:14px;border-radius:50%}
+  .panel.cooking .head .dot{background:var(--cooking)}
+  .panel.ready .head .dot{background:var(--ready)}
+  .panel .head h2{margin:0;font-size:20px}
+  .panel .head small{color:var(--muted);font-weight:700;margin-left:auto;font-size:13px}
+  .panel.ready{background:linear-gradient(180deg,var(--ready-bg),transparent 40%),var(--surface);border-color:color-mix(in srgb,var(--ready) 40%,var(--border))}
+  .disp-nums{display:flex;flex-wrap:wrap;gap:10px;align-content:flex-start}
+  .dnum{font-variant-numeric:tabular-nums;font-weight:800;border-radius:13px;padding:10px 8px;text-align:center;min-width:98px;flex:1 0 98px;max-width:150px;display:flex;flex-direction:column;align-items:center;gap:2px}
+  .dnum .n{line-height:1}
+  .dnum .ditems{font-size:13px;font-weight:700;letter-spacing:.02em}
+  .dnum small{font-size:12px;font-weight:700}
+  .panel.cooking .dnum{background:var(--surface-2);color:var(--text);border:1px solid var(--border)}
+  .panel.cooking .dnum .n{font-size:38px}
+  .panel.cooking .dnum .ditems{color:var(--muted)}
+  .panel.cooking .dnum small{color:var(--muted)}
+  .panel.ready .dnum{background:var(--ready);color:#fff;box-shadow:0 6px 18px color-mix(in srgb,var(--ready) 45%,transparent)}
+  .panel.ready .dnum .n{font-size:48px}
+  .panel.ready .dnum .ditems{color:rgba(255,255,255,.92)}
+  .blink{animation:blink 1.1s steps(1,end) infinite}
+  @keyframes blink{50%{opacity:.58}}
+  .disp-empty{color:var(--muted);font-weight:700;padding:30px 6px}
+  .disp-note{text-align:center;color:var(--muted);font-size:13px;font-weight:600;margin-top:16px}
+
+  /* ---------- Settings dialog ---------- */
+  dialog{border:1px solid var(--border);border-radius:18px;background:var(--surface);color:var(--text);padding:0;box-shadow:0 24px 60px rgba(0,0,0,.35);max-width:380px;width:calc(100% - 32px)}
+  dialog::backdrop{background:rgba(20,12,6,.5);backdrop-filter:blur(2px)}
+  .dlg-body{padding:20px}
+  .dlg-body h3{margin:0 0 4px;font-size:18px}
+  .dlg-body p{margin:0 0 16px;color:var(--muted);font-size:13px}
+  .field{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 0;border-top:1px solid var(--border)}
+  .field label{font-weight:700;font-size:14px}
+  .field label small{display:block;color:var(--muted);font-weight:600;font-size:12px}
+  .qtymini{display:flex;align-items:center;gap:2px;background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:4px}
+  .qtymini button{width:42px;height:42px;border-radius:9px;border:0;background:var(--surface);color:var(--text);font-size:22px;cursor:pointer;font-weight:700}
+  .qtymini button:hover{color:var(--accent)}
+  .qtymini .val{min-width:52px;text-align:center;font-size:22px;font-weight:800}
+  .switch{position:relative;width:52px;height:30px;flex:none}
+  .switch input{opacity:0;width:100%;height:100%;margin:0;cursor:pointer}
+  .switch .track{position:absolute;inset:0;background:var(--surface-2);border:1px solid var(--border);border-radius:999px;transition:.15s;pointer-events:none}
+  .switch .track::after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:var(--muted);transition:.15s}
+  .switch input:checked + .track{background:color-mix(in srgb,var(--ready) 30%,var(--surface-2));border-color:var(--ready)}
+  .switch input:checked + .track::after{left:23px;background:var(--ready)}
+  .dlg-actions{display:flex;gap:8px;padding:0 20px 20px}
+  .dlg-actions .btn{flex:1;padding:13px}
+  .btn.danger{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 40%,var(--border))}
+  .btn.danger:hover{background:var(--danger-bg)}
+  .btn.solid{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+
+  /* ---------- Toast ---------- */
+  .toast{
+    position:fixed;left:50%;bottom:24px;transform:translateX(-50%);
+    z-index:60;max-width:calc(100vw - 32px);
+    background:var(--surface);color:var(--text);
+    border:1px solid var(--border);border-radius:12px;
+    box-shadow:var(--shadow);padding:12px 16px;
+    font-size:13px;font-weight:600;line-height:1.4;text-align:center;
+    animation:toast-in .18s ease-out;
+  }
+  .toast.out{opacity:0;transition:opacity .4s ease}
+  @keyframes toast-in{from{opacity:0;transform:translate(-50%,8px)}to{opacity:1;transform:translate(-50%,0)}}
+  @media (prefers-reduced-motion:reduce){
+    .toast{animation:none}
+    .toast.out{transition:none}
+  }
+</style>
+
+<header>
+  <div class="brand">
+    <div class="mark">🔥</div>
+    <div>
+      <h1>ジビエ屋台</h1>
+      <small>WAIT MANAGER</small>
+    </div>
+  </div>
+  <div class="seg" role="group" aria-label="表示モード">
+    <button class="seg-btn" id="modeStaff" aria-pressed="true">スタッフ</button>
+    <button class="seg-btn" id="modeDisplay" aria-pressed="false">お客様表示</button>
+  </div>
+  <button class="icon-btn" id="themeBtn" title="ライト/ダーク切替" aria-label="テーマ切替">◐</button>
+  <button class="icon-btn" id="settingsBtn" title="設定" aria-label="設定">⚙</button>
+</header>
+
+<main>
+  <!-- ========== STAFF ========== -->
+  <section class="staff">
+    <div class="issue-panel">
+      <div class="issue-head">
+        <span class="t">新規受付 <span class="unit">1品 ¥500</span></span>
+        <span class="next num" id="nextNumPreview">次は #1</span>
+      </div>
+      <div class="menu-grid" id="menuGrid"><!-- built by JS --></div>
+      <div class="note-wrap">
+        <input class="note-input" id="noteInput" type="text" maxlength="60" placeholder="備考（例：辛口／大盛り／アレルギー など）">
+      </div>
+      <button class="issue-submit" id="issueBtn" disabled>
+        <span>番号を発行してお渡し</span><span class="cnt num" id="issueCount">0点 ¥0</span>
+      </button>
+    </div>
+
+    <div class="tiles">
+      <div class="tile cook"><div class="lbl">調理中</div><div class="v"><span class="num" id="tCook">0</span><span>組</span></div></div>
+      <div class="tile ready"><div class="lbl">お渡し待ち</div><div class="v"><span class="num" id="tReady">0</span><span>組</span></div></div>
+      <div class="tile"><div class="lbl">本日お渡し済</div><div class="v"><span class="num" id="tDone">0</span><span>組</span></div></div>
+    </div>
+
+    <div class="salesbar">
+      <span class="lbl">本日の受注金額</span>
+      <span class="amt num" id="salesTotal">¥0 <small>0 組</small></span>
+    </div>
+
+    <div class="section-h"><h2 id="activeHead">対応中</h2><div class="rule"></div></div>
+    <div class="cards" id="cards"></div>
+    <div class="empty" id="emptyState">まだ注文はありません。メニューの個数を選び「番号を発行」で受付を始めましょう。</div>
+
+    <details class="history">
+      <summary id="histSummary">お渡し済みの履歴</summary>
+      <div class="hist-list" id="histList"></div>
+    </details>
+  </section>
+
+  <!-- ========== CUSTOMER DISPLAY ========== -->
+  <section class="display">
+    <div class="disp-grid">
+      <div class="panel cooking">
+        <div class="head"><span class="dot"></span><h2>ただいま調理中</h2><small id="dispCookNote"></small></div>
+        <div class="disp-nums" id="dispCooking"></div>
+        <div class="disp-empty" id="dispCookEmpty" style="display:none">調理中の番号はありません</div>
+      </div>
+      <div class="panel ready">
+        <div class="head"><span class="dot"></span><h2>お受け取りください</h2><small>できあがり</small></div>
+        <div class="disp-nums" id="dispReady"></div>
+        <div class="disp-empty" id="dispReadyEmpty" style="display:none">お呼び出し中の番号はありません</div>
+      </div>
+    </div>
+    <p class="disp-note">お手元の番号札と画面の番号をお確かめのうえ、緑色に表示されたらカウンターまでお越しください。焼き上がりまで約 <span id="dispCookMin">20</span> 分です。</p>
+  </section>
+</main>
+
+<!-- Settings -->
+<dialog id="settingsDlg">
+  <div class="dlg-body">
+    <h3>設定</h3>
+    <p>屋台の運用に合わせて調整できます。</p>
+    <div class="field">
+      <label>焼き上がり時間<small>番号発行からの目安（分）</small></label>
+      <div class="qtymini">
+        <button id="cookMinus" aria-label="時間を減らす">−</button>
+        <div class="val num" id="cookVal">20</div>
+        <button id="cookPlus" aria-label="時間を増やす">＋</button>
+      </div>
+    </div>
+    <div class="field">
+      <label for="soundToggle">お知らせ音<small>焼き上がり時にブザー</small></label>
+      <span class="switch"><input type="checkbox" id="soundToggle" checked><span class="track"></span></span>
+    </div>
+    <div class="field">
+      <label>番号のリセット<small>次の番号を #1 に戻します</small></label>
+      <button class="btn" id="resetNumBtn" style="flex:0 0 auto;padding:10px 14px">#1に戻す</button>
+    </div>
+  </div>
+  <div class="dlg-actions">
+    <button class="btn danger" id="clearAllBtn">全データ消去</button>
+    <button class="btn solid" id="closeDlg">閉じる</button>
+  </div>
+</dialog>
+
+<script>
+(function(){
+  "use strict";
+  var KEY = "gibier-wait-v3";
+  var PRICE = 500;
+  var MENU = [
+    { key:"shika",     label:"鹿",       emoji:"🦌", color:"#B4703B" },
+    { key:"inoshishi", label:"猪",       emoji:"🐗", color:"#A24A38" },
+    { key:"anaguma",   label:"アナグマ", emoji:"🦡", color:"#6E7B8B" },
+    { key:"sonota",    label:"その他",   emoji:"🍢", color:"#7C8A4E" }
+  ];
+  var SEAS = [ { key:"shio", label:"塩" }, { key:"tare", label:"タレ" } ];
+  function menuOf(k){ for(var i=0;i<MENU.length;i++) if(MENU[i].key===k) return MENU[i]; return null; }
+  function emptyItems(){ var o={}; MENU.forEach(function(m){ o[m.key]={shio:0,tare:0}; }); return o; }
+
+  var state = load();
+
+  function load(){
+    try{
+      var s = JSON.parse(localStorage.getItem(KEY));
+      if(s && s.orders) return normalize(s);
+    }catch(e){}
+    return { orders:[], next:1, cookMin:20, sound:true, doneCount:0, theme:null,
+             draft:{ items:emptyItems(), note:"" } };
+  }
+  function normItems(raw){
+    var items = emptyItems();
+    if(!raw) return items;
+    MENU.forEach(function(m){
+      var v = raw[m.key];
+      if(typeof v === "number"){ items[m.key].tare = v||0; }          // legacy: flat qty
+      else if(v && typeof v === "object"){
+        items[m.key].shio = Number(v.shio)||0;
+        items[m.key].tare = Number(v.tare)||0;
+      }
+    });
+    return items;
+  }
+  function normalize(s){
+    s.orders = (s.orders||[]).map(function(o){
+      if(o.items){ o.items = normItems(o.items); }
+      else if(o.qty){ o.items = emptyItems(); o.items.sonota.tare = Number(o.qty)||0; }
+      else { o.items = emptyItems(); }
+      o.note = typeof o.note==="string" ? o.note : "";
+      return o;
+    });
+    if(typeof s.next!=="number") s.next=1;
+    if(typeof s.cookMin!=="number") s.cookMin=20;
+    if(typeof s.sound!=="boolean") s.sound=true;
+    if(typeof s.doneCount!=="number") s.doneCount=0;
+    if(!s.draft) s.draft={ items:emptyItems(), note:"" };
+    s.draft.items = normItems(s.draft.items);
+    if(typeof s.draft.note!=="string") s.draft.note="";
+    return s;
+  }
+  function save(){ try{ localStorage.setItem(KEY, JSON.stringify(state)); }catch(e){} }
+
+  var $ = function(id){ return document.getElementById(id); };
+
+  /* ---------- Item & money helpers ---------- */
+  function menuTotal(items,mk){ return (items[mk].shio||0)+(items[mk].tare||0); }
+  function itemsTotal(items){ var n=0; MENU.forEach(function(m){ n+=menuTotal(items,m.key); }); return n; }
+  function orderAmount(o){ return itemsTotal(o.items)*PRICE; }
+  function yen(n){ return "¥"+Number(n).toLocaleString("ja-JP"); }
+  function itemsChips(items){
+    return MENU.filter(function(m){return menuTotal(items,m.key)>0;}).map(function(m){
+      var parts=SEAS.filter(function(s){return items[m.key][s.key]>0;}).map(function(s){
+        return '<span class="ss">'+s.label+'<b>'+items[m.key][s.key]+'</b></span>';
+      }).join("");
+      return '<span class="mchip" style="--c:'+m.color+'">'+m.emoji+' '+m.label+' '+parts+'</span>';
+    }).join("");
+  }
+  function itemsInline(items){
+    return MENU.filter(function(m){return menuTotal(items,m.key)>0;}).map(function(m){
+      var parts=SEAS.filter(function(s){return items[m.key][s.key]>0;}).map(function(s){ return s.label+items[m.key][s.key]; }).join("");
+      return m.emoji+m.label+parts;
+    }).join("　");
+  }
+
+  /* ---------- Theme ---------- */
+  function applyTheme(){
+    if(state.theme) document.documentElement.setAttribute("data-theme", state.theme);
+    else document.documentElement.removeAttribute("data-theme");
+  }
+  $("themeBtn").addEventListener("click", function(){
+    var cur = state.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark":"light");
+    state.theme = cur==="dark" ? "light":"dark";
+    applyTheme(); save();
+  });
+  applyTheme();
+
+  /* ---------- Mode ---------- */
+  function setMode(m){
+    document.body.classList.toggle("mode-display", m==="display");
+    $("modeStaff").setAttribute("aria-pressed", String(m!=="display"));
+    $("modeDisplay").setAttribute("aria-pressed", String(m==="display"));
+  }
+  $("modeStaff").addEventListener("click", function(){ setMode("staff"); });
+  $("modeDisplay").addEventListener("click", function(){ setMode("display"); render(); });
+
+  /* ---------- Audio ---------- */
+  var actx=null;
+  function unlockAudio(){ if(!actx){ try{ actx=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} } if(actx&&actx.state==="suspended") actx.resume(); }
+  document.addEventListener("pointerdown", unlockAudio);
+  function beep(){
+    if(!state.sound || !actx) return;
+    var t=actx.currentTime;
+    [0,0.18,0.36].forEach(function(off){
+      var o=actx.createOscillator(), g=actx.createGain();
+      o.type="sine"; o.frequency.setValueAtTime(880, t+off);
+      g.gain.setValueAtTime(0.0001, t+off);
+      g.gain.exponentialRampToValueAtTime(0.35, t+off+0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t+off+0.15);
+      o.connect(g); g.connect(actx.destination);
+      o.start(t+off); o.stop(t+off+0.16);
+    });
+  }
+
+  /* ---------- Issue panel (menu × seasoning counters + note) ---------- */
+  function buildMenuGrid(){
+    $("menuGrid").innerHTML = MENU.map(function(m){
+      var rows = SEAS.map(function(s){
+        return ''
+        + '<div class="ssrow">'
+        +   '<span class="sslabel">'+s.label+'</span>'
+        +   '<div class="ctr">'
+        +     '<button data-menu="'+m.key+'" data-season="'+s.key+'" data-dir="-1" aria-label="'+m.label+s.label+'を減らす">−</button>'
+        +     '<span class="n num" data-count="'+m.key+'-'+s.key+'">0</span>'
+        +     '<button data-menu="'+m.key+'" data-season="'+s.key+'" data-dir="1" aria-label="'+m.label+s.label+'を増やす">＋</button>'
+        +   '</div>'
+        + '</div>';
+      }).join("");
+      return ''
+      + '<div class="menu-item" data-menu-item="'+m.key+'" style="--c:'+m.color+'">'
+      +   '<div class="mi-head"><span class="emoji">'+m.emoji+'</span><span class="name">'+m.label+'</span></div>'
+      +   rows
+      + '</div>';
+    }).join("");
+  }
+  $("menuGrid").addEventListener("click", function(e){
+    var btn=e.target.closest("button[data-menu]"); if(!btn) return;
+    var k=btn.getAttribute("data-menu"), s=btn.getAttribute("data-season"), dir=Number(btn.getAttribute("data-dir"));
+    var cur=state.draft.items[k][s]||0;
+    state.draft.items[k][s]=Math.max(0, Math.min(30, cur+dir));
+    save(); renderDraft();
+  });
+  $("noteInput").addEventListener("input", function(e){ state.draft.note=e.target.value; save(); });
+
+  function renderDraft(){
+    MENU.forEach(function(m){
+      SEAS.forEach(function(s){
+        var n=state.draft.items[m.key][s.key]||0;
+        var el=$("menuGrid").querySelector('[data-count="'+m.key+'-'+s.key+'"]');
+        if(el){ el.textContent=n; el.classList.toggle("hot", n>0); }
+      });
+      var item=$("menuGrid").querySelector('[data-menu-item="'+m.key+'"]');
+      if(item) item.classList.toggle("on", menuTotal(state.draft.items,m.key)>0);
+    });
+    var total=itemsTotal(state.draft.items);
+    $("issueCount").textContent = total+"点 "+yen(total*PRICE);
+    $("issueBtn").disabled = total===0;
+    $("nextNumPreview").textContent = "次は #"+state.next;
+  }
+
+  $("issueBtn").addEventListener("click", function(){
+    var total=itemsTotal(state.draft.items);
+    if(total===0) return;
+    var now=Date.now();
+    var items=emptyItems();
+    MENU.forEach(function(m){ SEAS.forEach(function(s){ items[m.key][s.key]=state.draft.items[m.key][s.key]||0; }); });
+    state.orders.push({ id:state.next, items:items, note:(state.draft.note||"").trim(),
+                        createdAt:now, readyAt:now+state.cookMin*60000, status:"cooking", alerted:false });
+    state.next++;
+    state.draft={ items:emptyItems(), note:"" };
+    $("noteInput").value="";
+    save(); renderDraft(); render();
+    var b=$("issueBtn"); b.style.filter="brightness(1.25)"; setTimeout(function(){ b.style.filter=""; },140);
+  });
+
+  /* ---------- Order actions ---------- */
+  $("cards").addEventListener("click", function(e){
+    var btn=e.target.closest("button[data-act]"); if(!btn) return;
+    var id=Number(btn.getAttribute("data-id")), act=btn.getAttribute("data-act");
+    var o=find(id); if(!o) return;
+    if(act==="ready"){ o.status="ready"; o.alerted=true; }
+    else if(act==="deliver"){ o.status="done"; o.deliveredAt=Date.now(); state.doneCount++; }
+    else if(act==="delay"){ o.readyAt+=5*60000; if(o.status==="ready"){ o.status="cooking"; } o.alerted=false; }
+    else if(act==="cancel"){ if(confirm("#"+o.id+" を取り消します。よろしいですか？")){ o.status="canceled"; } }
+    save(); render();
+  });
+  function find(id){ for(var i=0;i<state.orders.length;i++) if(state.orders[i].id===id) return state.orders[i]; return null; }
+
+  /* ---------- Time helpers ---------- */
+  function fmtClock(ts){ var d=new Date(ts); return String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0"); }
+  function fmtMMSS(ms){ var neg=ms<0; ms=Math.abs(ms); var s=Math.round(ms/1000), m=Math.floor(s/60); s=s%60; return (neg?"+":"")+m+":"+String(s).padStart(2,"0"); }
+  function esc(s){ return String(s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];}); }
+
+  /* ---------- Render ---------- */
+  function render(){
+    var now=Date.now();
+    var newlyReady=false;
+    state.orders.forEach(function(o){
+      if(o.status==="cooking" && now>=o.readyAt){ o.status="ready"; if(!o.alerted){ newlyReady=true; o.alerted=true; } }
+    });
+    if(newlyReady){ beep(); save(); }
+
+    var cooking=state.orders.filter(function(o){return o.status==="cooking";});
+    var ready=state.orders.filter(function(o){return o.status==="ready";});
+    var done=state.orders.filter(function(o){return o.status==="done";});
+
+    $("tCook").textContent=cooking.length;
+    $("tReady").textContent=ready.length;
+    $("tDone").textContent=state.doneCount;
+    $("dispCookMin").textContent=state.cookMin;
+
+    // 本日の受注金額（キャンセル以外の全注文の合計）
+    var received=0, receivedN=0;
+    state.orders.forEach(function(o){ if(o.status!=="canceled"){ received+=orderAmount(o); receivedN++; } });
+    $("salesTotal").innerHTML = yen(received)+' <small>'+receivedN+' 組</small>';
+
+    ready.sort(function(a,b){return a.readyAt-b.readyAt;});
+    cooking.sort(function(a,b){return a.readyAt-b.readyAt;});
+    var active=ready.concat(cooking);
+
+    $("emptyState").style.display=active.length?"none":"block";
+    $("activeHead").textContent="対応中 ("+active.length+")";
+
+    $("cards").innerHTML=active.map(function(o){
+      var isReady=o.status==="ready";
+      var remain=o.readyAt-now;
+      var lateBad = isReady && (now-o.readyAt) > 3*60000;
+      var total=state.cookMin*60000;
+      var pct=isReady?100:Math.max(0,Math.min(100,(1-(remain/total))*100));
+      var cls=isReady?(lateBad?"card ready late ready-pulse":"card ready ready-pulse"):"card";
+      var pill=isReady?'<span class="pill ready">できあがり</span>':'<span class="pill cook">調理中</span>';
+      var countHtml;
+      if(isReady){
+        var wait=now-o.readyAt;
+        countHtml='<div class="count '+(lateBad?"late":"ready")+'">お渡しOK'+(wait>15000?' <span class="u num">('+fmtMMSS(wait)+'待ち)</span>':'')+'</div>';
+      }else{
+        countHtml='<div class="count cook num">残り '+fmtMMSS(remain)+'</div>';
+      }
+      var noteHtml=o.note?('<div class="card-note"><b>備考</b>'+esc(o.note)+'</div>'):'';
+      return ''
+      + '<div class="'+cls+'">'
+      +   '<div class="card-top"><div class="ticket num"><span class="hash">#</span>'+o.id+'</div>'+pill+'</div>'
+      +   '<div class="card-items">'+itemsChips(o.items)+'</div>'
+      +   noteHtml
+      +   '<div class="meta"><span class="price num">'+yen(orderAmount(o))+'</span><span class="num">'+itemsTotal(o.items)+'点</span><span>受付 <b class="num">'+fmtClock(o.createdAt)+'</b></span><span>予定 <b class="num">'+fmtClock(o.readyAt)+'</b></span></div>'
+      +   countHtml
+      +   '<div class="bar"><i style="width:'+pct.toFixed(1)+'%"></i></div>'
+      +   '<div class="actions">'
+      +     (isReady
+              ? '<button class="btn primary" data-act="deliver" data-id="'+o.id+'">お渡し完了</button>'
+                +'<button class="btn ghost" data-act="delay" data-id="'+o.id+'">+5分</button>'
+              : '<button class="btn primary" data-act="ready" data-id="'+o.id+'" style="background:var(--cooking);border-color:var(--cooking)">焼けた！</button>'
+                +'<button class="btn ghost" data-act="delay" data-id="'+o.id+'">+5分</button>'
+                +'<button class="btn ghost" data-act="cancel" data-id="'+o.id+'">取消</button>')
+      +   '</div>'
+      + '</div>';
+    }).join("");
+
+    var delivered=done.sort(function(a,b){return (b.deliveredAt||0)-(a.deliveredAt||0);});
+    $("histSummary").textContent="お渡し済みの履歴 ("+state.doneCount+")";
+    $("histList").innerHTML=delivered.slice(0,40).map(function(o){
+      return '<span class="chip num">#'+o.id+' ・'+fmtClock(o.deliveredAt||o.readyAt)+'</span>';
+    }).join("") || '<span class="chip">まだありません</span>';
+
+    // customer display
+    $("dispCookEmpty").style.display=cooking.length?"none":"block";
+    $("dispReadyEmpty").style.display=ready.length?"none":"block";
+    $("dispCookNote").textContent=cooking.length?("あと "+fmtMMSS(cooking[0].readyAt-now).replace("+","")+" で先頭が完成"):"";
+    $("dispCooking").innerHTML=cooking.map(function(o){
+      return '<div class="dnum"><span class="n num">'+o.id+'</span><span class="ditems">'+itemsInline(o.items)+'</span><small class="num">残り '+fmtMMSS(o.readyAt-now)+'</small></div>';
+    }).join("");
+    $("dispReady").innerHTML=ready.map(function(o){
+      return '<div class="dnum blink"><span class="n num">'+o.id+'</span><span class="ditems">'+itemsInline(o.items)+'</span></div>';
+    }).join("");
+  }
+
+  /* ---------- Settings ---------- */
+  var dlg=$("settingsDlg");
+  $("settingsBtn").addEventListener("click", function(){ $("cookVal").textContent=state.cookMin; $("soundToggle").checked=state.sound; if(dlg.showModal) dlg.showModal(); });
+  $("closeDlg").addEventListener("click", function(){ dlg.close(); });
+  $("cookPlus").addEventListener("click", function(){ state.cookMin=Math.min(90,state.cookMin+1); $("cookVal").textContent=state.cookMin; save(); render(); });
+  $("cookMinus").addEventListener("click", function(){ state.cookMin=Math.max(1,state.cookMin-1); $("cookVal").textContent=state.cookMin; save(); render(); });
+  $("soundToggle").addEventListener("change", function(e){ state.sound=e.target.checked; unlockAudio(); if(state.sound) beep(); save(); });
+  $("resetNumBtn").addEventListener("click", function(){ if(confirm("次の発行番号を #1 に戻します。よろしいですか？")){ state.next=1; save(); renderDraft(); } });
+  $("clearAllBtn").addEventListener("click", function(){
+    if(confirm("すべての注文・履歴・番号を消去します。元に戻せません。よろしいですか？")){
+      state={ orders:[], next:1, cookMin:state.cookMin, sound:state.sound, doneCount:0, theme:state.theme, draft:{items:emptyItems(),note:""} };
+      $("noteInput").value=""; save(); renderDraft(); render(); dlg.close();
+    }
+  });
+
+  /* ---------- Back guard & fail-safe save ---------- */
+  /* 状態は変更のたびに localStorage へ保存済み。ここでは誤操作での離脱を防ぎ、
+     離脱・バックグラウンド化の直前にも保存して取りこぼしを無くす。 */
+  function toast(msg){
+    var t=document.createElement("div");
+    t.className="toast";
+    t.setAttribute("role","status");
+    t.textContent=msg;
+    document.body.appendChild(t);
+    setTimeout(function(){ t.classList.add("out"); },1800);
+    setTimeout(function(){ if(t.parentNode) t.parentNode.removeChild(t); },2300);
+  }
+  function pushGuard(){ try{ history.pushState({gw:1},"",location.href); }catch(e){} }
+  pushGuard();
+  window.addEventListener("popstate", function(){
+    save();
+    var d=$("settingsDlg");
+    if(d && d.open){ d.close(); }
+    else { toast("「戻る」を無効にしました。データはすべて保存されています。"); }
+    pushGuard();
+  });
+  window.addEventListener("pagehide", save);
+  document.addEventListener("visibilitychange", function(){ if(document.hidden) save(); });
+
+  /* ---------- Init ---------- */
+  buildMenuGrid();
+  $("noteInput").value=state.draft.note||"";
+  renderDraft();
+  render();
+  setInterval(render, 1000);
+})();
+</script>
