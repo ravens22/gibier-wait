@@ -263,6 +263,17 @@
     .toast{animation:none}
     .toast.out{transition:none}
   }
+
+  /* ---------- Sync badge ---------- */
+  .synbadge{
+    position:fixed;left:12px;bottom:12px;z-index:55;
+    font-size:11px;font-weight:700;letter-spacing:.02em;
+    padding:6px 10px;border-radius:999px;
+    background:var(--surface);color:var(--muted);
+    border:1px solid var(--border);box-shadow:var(--shadow);
+    opacity:.9;user-select:none;pointer-events:none;
+  }
+  .synbadge[data-on="true"]{color:var(--ready);border-color:color-mix(in srgb,var(--ready) 40%,var(--border))}
 </style>
 
 <header>
@@ -358,6 +369,10 @@
       <label>番号のリセット<small>次の番号を #1 に戻します</small></label>
       <button class="btn" id="resetNumBtn" style="flex:0 0 auto;padding:10px 14px">#1に戻す</button>
     </div>
+    <div class="field">
+      <label>本日の営業を終了<small>注文・履歴・番号・売上を0に。設定は残ります</small></label>
+      <button class="btn" id="endDayBtn" style="flex:0 0 auto;padding:10px 14px">翌日用にリセット</button>
+    </div>
   </div>
   <div class="dlg-actions">
     <button class="btn danger" id="clearAllBtn">全データ消去</button>
@@ -365,9 +380,31 @@
   </div>
 </dialog>
 
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
 <script>
 (function(){
   "use strict";
+
+  /* =====================================================================
+     端末間同期の設定（Firebase Realtime Database）
+     ---------------------------------------------------------------------
+     ↓ここにFirebaseコンソールで発行した設定を貼り付けると、全端末が
+       同じ注文リスト・番号・売上をリアルタイムで共有します。
+       空のままなら、従来どおり各端末だけで動作します（同期なし）。
+     ROOM は全端末で同じ文字列にしてください（この店舗の合言葉）。
+     ===================================================================== */
+  var FIREBASE_CONFIG = {
+    apiKey: "AIzaSyAsJS8uYSeBRl00QbQHvkVw0_wLekzR2zU",
+    authDomain: "gibier-yatai.firebaseapp.com",
+    databaseURL: "https://gibier-yatai-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "gibier-yatai",
+    storageBucket: "gibier-yatai.firebasestorage.app",
+    messagingSenderId: "633429991730",
+    appId: "1:633429991730:web:33b990eebc23231bbdf72b"
+  };
+  var ROOM = "gibier-yatai";
+
   var KEY = "gibier-wait-v3";
   var PRICE = 500;
   var MENU = [
@@ -380,16 +417,12 @@
   function menuOf(k){ for(var i=0;i<MENU.length;i++) if(MENU[i].key===k) return MENU[i]; return null; }
   function emptyItems(){ var o={}; MENU.forEach(function(m){ o[m.key]={shio:0,tare:0}; }); return o; }
 
+  /* state の内訳
+       共有（同期対象）: orders / next / cookMin
+       端末ごと（非同期）: sound / theme / draft
+     doneCount は orders から都度算出（別カウンタを持たず競合を避ける）。 */
   var state = load();
 
-  function load(){
-    try{
-      var s = JSON.parse(localStorage.getItem(KEY));
-      if(s && s.orders) return normalize(s);
-    }catch(e){}
-    return { orders:[], next:1, cookMin:20, sound:true, doneCount:0, theme:null,
-             draft:{ items:emptyItems(), note:"" } };
-  }
   function normItems(raw){
     var items = emptyItems();
     if(!raw) return items;
@@ -403,26 +436,104 @@
     });
     return items;
   }
-  function normalize(s){
-    s.orders = (s.orders||[]).map(function(o){
-      if(o.items){ o.items = normItems(o.items); }
-      else if(o.qty){ o.items = emptyItems(); o.items.sonota.tare = Number(o.qty)||0; }
-      else { o.items = emptyItems(); }
-      o.note = typeof o.note==="string" ? o.note : "";
-      return o;
-    });
-    if(typeof s.next!=="number") s.next=1;
-    if(typeof s.cookMin!=="number") s.cookMin=20;
-    if(typeof s.sound!=="boolean") s.sound=true;
-    if(typeof s.doneCount!=="number") s.doneCount=0;
-    if(!s.draft) s.draft={ items:emptyItems(), note:"" };
-    s.draft.items = normItems(s.draft.items);
-    if(typeof s.draft.note!=="string") s.draft.note="";
-    return s;
+  function normalizeOrder(o){
+    o = o || {};
+    var items;
+    if(o.items){ items = normItems(o.items); }
+    else if(o.qty){ items = emptyItems(); items.sonota.tare = Number(o.qty)||0; }
+    else { items = emptyItems(); }
+    var no = { id:Number(o.id)||0, items:items, note:(typeof o.note==="string"?o.note:""),
+               createdAt:Number(o.createdAt)||Date.now(),
+               readyAt:Number(o.readyAt)||Date.now(),
+               status:o.status||"cooking" };
+    if(o.deliveredAt) no.deliveredAt = Number(o.deliveredAt);
+    return no;
   }
-  function save(){ try{ localStorage.setItem(KEY, JSON.stringify(state)); }catch(e){} }
+  function computeNext(arr){ var mx=0; arr.forEach(function(o){ if(o.id>mx) mx=o.id; }); return mx+1; }
+  function doneCount(){ var n=0; state.orders.forEach(function(o){ if(o.status==="done") n++; }); return n; }
+
+  function load(){
+    var base = { orders:[], next:1, cookMin:20, sound:true, theme:null,
+                 draft:{ items:emptyItems(), note:"" } };
+    try{
+      var s = JSON.parse(localStorage.getItem(KEY));
+      if(s){
+        var src = s.cache ? s.cache : s;            // 新形式(cache) / 旧v3形式の両対応
+        if(src.orders){ base.orders = src.orders.map(normalizeOrder); }
+        if(typeof src.next==="number") base.next = src.next;
+        if(typeof src.cookMin==="number") base.cookMin = src.cookMin;
+        if(typeof s.sound==="boolean") base.sound = s.sound;
+        if(s.theme) base.theme = s.theme;
+        if(s.draft){ base.draft = { items:normItems(s.draft.items),
+                                    note:(typeof s.draft.note==="string"?s.draft.note:"") }; }
+      }
+    }catch(e){}
+    return base;
+  }
+  /* localStorage は「端末設定＋共有データのキャッシュ」を保存。
+     リロード時に即表示でき、通信前でも最後の状態から始められる。 */
+  function saveLocal(){
+    try{
+      localStorage.setItem(KEY, JSON.stringify({
+        sound:state.sound, theme:state.theme, draft:state.draft,
+        cache:{ orders:state.orders, next:state.next, cookMin:state.cookMin }
+      }));
+    }catch(e){}
+  }
+  var save = saveLocal;   // 既存コードの save() 呼び出し互換（ローカルキャッシュ保存）
 
   var $ = function(id){ return document.getElementById(id); };
+
+  /* ================= 端末間同期（Firebase Realtime Database） ================= */
+  var roomRef=null, online=false, syncReady=false;
+  function syncing(){ return !!roomRef; }
+
+  function initSync(){
+    if(!FIREBASE_CONFIG.apiKey || !FIREBASE_CONFIG.databaseURL) return;   // 未設定→ローカルのみ
+    if(!window.firebase || !firebase.initializeApp){ syncBadge("接続不可"); return; }
+    try{
+      firebase.initializeApp(FIREBASE_CONFIG);
+      var db = firebase.database();
+      roomRef = db.ref("rooms/" + ROOM);
+      db.ref(".info/connected").on("value", function(s){
+        var was=online; online=!!s.val();
+        syncBadge(online ? "同期中" : "オフライン（復帰待ち）");
+        if(online && was===false && syncReady) toast("同期サーバーに接続しました。");
+      });
+      roomRef.on("value",
+        function(snap){ applyRemote(snap.val()||{}); syncReady=true; },
+        function(err){ syncBadge("権限エラー：ルール設定が必要"); });
+      syncBadge("接続中…");
+    }catch(e){ roomRef=null; syncBadge("接続不可"); }
+  }
+
+  /* サーバーの最新状態を反映（サーバーが共有データの真実の源） */
+  var beepSeeded=false;
+  function applyRemote(v){
+    var map = v.orders || {};
+    state.orders = Object.keys(map).map(function(k){ return normalizeOrder(map[k]); });
+    state.next   = (v.meta && typeof v.meta.next==="number") ? v.meta.next : computeNext(state.orders);
+    if(v.meta && typeof v.meta.cookMin==="number") state.cookMin = v.meta.cookMin;
+    // 初回スナップショットだけ「既に完成済み」を鳴らさない。以降は他端末の
+    // 「焼けた」操作を各端末で鳴らせるよう、seedし直さない。
+    if(!beepSeeded){ seedBeeped(); beepSeeded=true; }
+    saveLocal();
+    renderDraft();
+    render();
+  }
+
+  /* 接続状態の小さなバッジ */
+  var badgeEl=null;
+  function syncBadge(text){
+    if(!badgeEl){
+      badgeEl=document.createElement("div");
+      badgeEl.className="synbadge";
+      document.body.appendChild(badgeEl);
+    }
+    badgeEl.textContent = "🔗 " + text;
+    badgeEl.setAttribute("data-on", String(text==="同期中"));
+  }
+  /* ========================================================================= */
 
   /* ---------- Item & money helpers ---------- */
   function menuTotal(items,mk){ return (items[mk].shio||0)+(items[mk].tare||0); }
@@ -466,6 +577,16 @@
   $("modeDisplay").addEventListener("click", function(){ setMode("display"); render(); });
 
   /* ---------- Audio ---------- */
+  /* 鳴らし済み番号は端末ごとに記録（各端末で1回だけ鳴らす／既存分は鳴らさない） */
+  var beeped={};
+  function seedBeeped(){
+    var now=Date.now();
+    state.orders.forEach(function(o){
+      if(o.status==="ready" || (o.status==="cooking" && now>=o.readyAt) || o.status==="done" || o.status==="canceled"){
+        beeped[o.id]=true;
+      }
+    });
+  }
   var actx=null;
   function unlockAudio(){ if(!actx){ try{ actx=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} } if(actx&&actx.state==="suspended") actx.resume(); }
   document.addEventListener("pointerdown", unlockAudio);
@@ -535,12 +656,24 @@
     var now=Date.now();
     var items=emptyItems();
     MENU.forEach(function(m){ SEAS.forEach(function(s){ items[m.key][s.key]=state.draft.items[m.key][s.key]||0; }); });
-    state.orders.push({ id:state.next, items:items, note:(state.draft.note||"").trim(),
-                        createdAt:now, readyAt:now+state.cookMin*60000, status:"cooking", alerted:false });
-    state.next++;
+    var note=(state.draft.note||"").trim();
+    function makeOrder(id){ return { id:id, items:items, note:note, createdAt:now,
+                                     readyAt:now+state.cookMin*60000, status:"cooking" }; }
+    if(syncing()){
+      // 番号はトランザクションで採番（複数端末の同時発行でも重複しない）
+      roomRef.child("meta/next").transaction(function(cur){ if(cur==null) cur=1; return cur+1; },
+        function(err, committed, snap){
+          if(err || !committed) return;
+          var id = snap.val() - 1;
+          roomRef.child("orders/"+id).set(makeOrder(id));
+        });
+    }else{
+      state.orders.push(makeOrder(state.next));
+      state.next++;
+    }
     state.draft={ items:emptyItems(), note:"" };
     $("noteInput").value="";
-    save(); renderDraft(); render();
+    save(); renderDraft(); if(!syncing()) render();
     var b=$("issueBtn"); b.style.filter="brightness(1.25)"; setTimeout(function(){ b.style.filter=""; },140);
   });
 
@@ -549,11 +682,18 @@
     var btn=e.target.closest("button[data-act]"); if(!btn) return;
     var id=Number(btn.getAttribute("data-id")), act=btn.getAttribute("data-act");
     var o=find(id); if(!o) return;
-    if(act==="ready"){ o.status="ready"; o.alerted=true; }
-    else if(act==="deliver"){ o.status="done"; o.deliveredAt=Date.now(); state.doneCount++; }
-    else if(act==="delay"){ o.readyAt+=5*60000; if(o.status==="ready"){ o.status="cooking"; } o.alerted=false; }
-    else if(act==="cancel"){ if(confirm("#"+o.id+" を取り消します。よろしいですか？")){ o.status="canceled"; } }
-    save(); render();
+    var patch=null;
+    if(act==="ready"){ patch={ status:"ready" }; }
+    else if(act==="deliver"){ patch={ status:"done", deliveredAt:Date.now() }; }
+    else if(act==="delay"){ patch={ readyAt:o.readyAt+5*60000, status:"cooking" }; }
+    else if(act==="cancel"){ if(!confirm("#"+o.id+" を取り消します。よろしいですか？")) return; patch={ status:"canceled" }; }
+    if(!patch) return;
+    if(syncing()){
+      roomRef.child("orders/"+id).update(patch);
+    }else{
+      for(var k in patch){ o[k]=patch[k]; }
+      save(); render();
+    }
   });
   function find(id){ for(var i=0;i<state.orders.length;i++) if(state.orders[i].id===id) return state.orders[i]; return null; }
 
@@ -567,17 +707,24 @@
     var now=Date.now();
     var newlyReady=false;
     state.orders.forEach(function(o){
-      if(o.status==="cooking" && now>=o.readyAt){ o.status="ready"; if(!o.alerted){ newlyReady=true; o.alerted=true; } }
+      var isReadyNow = o.status==="ready" || (o.status==="cooking" && now>=o.readyAt);
+      // 時間到達を検知した端末が「できあがり」を共有（同じ値の書き込みなので競合しても無害）
+      if(o.status==="cooking" && now>=o.readyAt){
+        if(syncing()){ if(online) roomRef.child("orders/"+o.id).update({status:"ready"}); }
+        else { o.status="ready"; save(); }
+      }
+      // 各端末で1回だけ鳴らす
+      if(isReadyNow && !beeped[o.id]){ beeped[o.id]=true; newlyReady=true; }
     });
-    if(newlyReady){ beep(); save(); }
+    if(newlyReady){ beep(); }
 
-    var cooking=state.orders.filter(function(o){return o.status==="cooking";});
-    var ready=state.orders.filter(function(o){return o.status==="ready";});
+    var cooking=state.orders.filter(function(o){return o.status==="cooking" && now<o.readyAt;});
+    var ready=state.orders.filter(function(o){return o.status==="ready" || (o.status==="cooking" && now>=o.readyAt);});
     var done=state.orders.filter(function(o){return o.status==="done";});
 
     $("tCook").textContent=cooking.length;
     $("tReady").textContent=ready.length;
-    $("tDone").textContent=state.doneCount;
+    $("tDone").textContent=done.length;
     $("dispCookMin").textContent=state.cookMin;
 
     // 本日の受注金額（キャンセル以外の全注文の合計）
@@ -593,7 +740,7 @@
     $("activeHead").textContent="対応中 ("+active.length+")";
 
     $("cards").innerHTML=active.map(function(o){
-      var isReady=o.status==="ready";
+      var isReady=o.status==="ready" || (o.status==="cooking" && now>=o.readyAt);
       var remain=o.readyAt-now;
       var lateBad = isReady && (now-o.readyAt) > 3*60000;
       var total=state.cookMin*60000;
@@ -628,7 +775,7 @@
     }).join("");
 
     var delivered=done.sort(function(a,b){return (b.deliveredAt||0)-(a.deliveredAt||0);});
-    $("histSummary").textContent="お渡し済みの履歴 ("+state.doneCount+")";
+    $("histSummary").textContent="お渡し済みの履歴 ("+done.length+")";
     $("histList").innerHTML=delivered.slice(0,40).map(function(o){
       return '<span class="chip num">#'+o.id+' ・'+fmtClock(o.deliveredAt||o.readyAt)+'</span>';
     }).join("") || '<span class="chip">まだありません</span>';
@@ -649,14 +796,57 @@
   var dlg=$("settingsDlg");
   $("settingsBtn").addEventListener("click", function(){ $("cookVal").textContent=state.cookMin; $("soundToggle").checked=state.sound; if(dlg.showModal) dlg.showModal(); });
   $("closeDlg").addEventListener("click", function(){ dlg.close(); });
-  $("cookPlus").addEventListener("click", function(){ state.cookMin=Math.min(90,state.cookMin+1); $("cookVal").textContent=state.cookMin; save(); render(); });
-  $("cookMinus").addEventListener("click", function(){ state.cookMin=Math.max(1,state.cookMin-1); $("cookVal").textContent=state.cookMin; save(); render(); });
+  function setCook(v){
+    v=Math.max(1,Math.min(90,v));
+    state.cookMin=v; $("cookVal").textContent=v;
+    if(syncing()) roomRef.child("meta/cookMin").set(v);
+    save(); render();
+  }
+  $("cookPlus").addEventListener("click", function(){ setCook(state.cookMin+1); });
+  $("cookMinus").addEventListener("click", function(){ setCook(state.cookMin-1); });
   $("soundToggle").addEventListener("change", function(e){ state.sound=e.target.checked; unlockAudio(); if(state.sound) beep(); save(); });
-  $("resetNumBtn").addEventListener("click", function(){ if(confirm("次の発行番号を #1 に戻します。よろしいですか？")){ state.next=1; save(); renderDraft(); } });
+  $("resetNumBtn").addEventListener("click", function(){
+    if(!confirm("次の発行番号を #1 に戻します。よろしいですか？")) return;
+    state.next=1;
+    if(syncing()) roomRef.child("meta/next").set(1);
+    save(); renderDraft();
+  });
+  /* 1日の締め：売上・注文・番号を0に戻す。設定（時間・音・テーマ）は維持 */
+  /* 共有データ（注文・番号）を初期化。cookMin は保持。 */
+  function resetShared(){
+    beeped={};
+    if(syncing()){
+      roomRef.child("orders").remove();
+      roomRef.child("meta/next").set(1);
+    }else{
+      state.orders=[]; state.next=1; save(); render();
+    }
+  }
+  $("endDayBtn").addEventListener("click", function(){
+    var received=0, receivedN=0;
+    state.orders.forEach(function(o){ if(o.status!=="canceled"){ received+=orderAmount(o); receivedN++; } });
+    var msg = "本日の営業を終了し、翌日用にリセットします。\n\n"
+            + "【本日の実績】\n"
+            + "　受注　　　" + receivedN + " 組 ／ " + yen(received) + "\n"
+            + "　お渡し済　" + doneCount() + " 組\n\n"
+            + "注文・履歴・番号・売上をすべて 0 に戻します。\n"
+            + "焼き上がり時間・お知らせ音・テーマの設定は残ります。\n"
+            + (syncing() ? "※全端末で一斉にリセットされます。\n" : "")
+            + "\n元に戻せません。よろしいですか？";
+    if(confirm(msg)){
+      resetShared();
+      state.draft = { items:emptyItems(), note:"" };
+      $("noteInput").value = "";
+      save(); renderDraft(); dlg.close();
+      toast("リセットしました。#1 から開始できます。");
+    }
+  });
+
   $("clearAllBtn").addEventListener("click", function(){
-    if(confirm("すべての注文・履歴・番号を消去します。元に戻せません。よろしいですか？")){
-      state={ orders:[], next:1, cookMin:state.cookMin, sound:state.sound, doneCount:0, theme:state.theme, draft:{items:emptyItems(),note:""} };
-      $("noteInput").value=""; save(); renderDraft(); render(); dlg.close();
+    if(confirm("すべての注文・履歴・番号を消去します。元に戻せません。よろしいですか？"+(syncing()?"\n※全端末で一斉に消去されます。":""))){
+      resetShared();
+      state.draft={items:emptyItems(),note:""};
+      $("noteInput").value=""; save(); renderDraft(); dlg.close();
     }
   });
 
@@ -687,8 +877,10 @@
   /* ---------- Init ---------- */
   buildMenuGrid();
   $("noteInput").value=state.draft.note||"";
+  seedBeeped();          // 起動時点で完成済みの番号は鳴らさない
   renderDraft();
   render();
   setInterval(render, 1000);
+  initSync();            // 設定済みなら端末間同期を開始（未設定ならローカル動作）
 })();
 </script>
